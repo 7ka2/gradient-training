@@ -196,6 +196,7 @@
   .p-dot.now{background:var(--hard);}
   .player-controls{display:flex; gap:12px; padding:24px 22px 40px;}
   .ctrl-btn{flex:1; padding:17px 0; border-radius:16px; text-align:center; font-size:15px; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--panel);}
+  #playerRestart, #exRestart{flex:0 0 54px; font-size:20px;}
   .ctrl-btn.main{background:var(--hard); color:#1A1206; border:none;}
 
   /* Modal / sheet */
@@ -307,6 +308,7 @@
       <div class="player-dots" id="playerDots"></div>
     </div>
     <div class="player-controls">
+      <div class="ctrl-btn" id="playerRestart" title="Start this session over">↺</div>
       <div class="ctrl-btn" id="playerSkip">Skip</div>
       <div class="ctrl-btn main" id="playerPause">Pause</div>
     </div>
@@ -317,7 +319,7 @@
     <div class="player-top">
       <div class="player-close" id="exClose">Exit</div>
       <div class="player-phase" id="exTitle"></div>
-      <div style="width:32px"></div>
+      <div class="player-close" id="exRestart" title="Start this exercise over">↺</div>
     </div>
     <div class="player-mid">
       <div class="filmstrip" id="exFilmstrip"></div>
@@ -334,6 +336,8 @@
 </div>
 
 <script>
+const APP_VERSION = 'v1.3';
+const DEFAULT_UPDATE_URL = 'https://raw.githubusercontent.com/7ka2/gradient-training/refs/heads/main/index.html';
 /* ================= PROGRAM DEFINITION ================= */
 const DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
@@ -509,7 +513,7 @@ const EXERCISES = {
   goblet_squat: {
     id:'goblet_squat', name:'Goblet Squat', icon:'🏋️',
     target:'Quads & glutes — power for out-of-saddle climbing',
-    sets:3, reps:'10-12', restSeconds:75,
+    sets:3, reps:'10-12', restSeconds:75, loadType:'weight',
     cues:[
       'Hold one dumbbell vertically at your chest, elbows pointing down.',
       'Feet just outside shoulder-width, toes slightly out.',
@@ -527,7 +531,7 @@ const EXERCISES = {
   db_rdl: {
     id:'db_rdl', name:'Dumbbell Romanian Deadlift', icon:'🏋️',
     target:'Hamstrings & glutes — the primary climbing-power movement',
-    sets:3, reps:'10-12', restSeconds:75,
+    sets:3, reps:'10-12', restSeconds:75, loadType:'weight',
     cues:[
       'Feet shoulder-width, dumbbells resting on your thighs, chest tall.',
       'Push hips back with a slight, fixed knee bend — dumbbells slide down your thighs.',
@@ -545,7 +549,7 @@ const EXERCISES = {
   split_squat: {
     id:'split_squat', name:'Step-Up (or RFE Split Squat)', icon:'🏋️',
     target:'Single-leg strength — mirrors the pedal stroke, side to side',
-    sets:3, reps:'8-10 per leg', restSeconds:60,
+    sets:3, reps:'8-10 per leg', restSeconds:60, loadType:'weight_optional',
     cues:[
       'Find a sturdy step or box roughly knee height.',
       'Bodyweight to start — add light dumbbells at your sides once this feels easy.',
@@ -562,7 +566,7 @@ const EXERCISES = {
   db_row: {
     id:'db_row', name:'Dumbbell Row', icon:'🏋️',
     target:'Pulling strength — posture, bike handling, and your pull-up progress',
-    sets:3, reps:'10-12 per arm', restSeconds:60,
+    sets:3, reps:'10-12 per arm', restSeconds:60, loadType:'weight',
     cues:[
       'Support one hand/knee on a bench, back flat and roughly parallel to the floor.',
       'Let the dumbbell hang straight down from a relaxed shoulder.',
@@ -579,7 +583,7 @@ const EXERCISES = {
   incline_pushup: {
     id:'incline_pushup', name:'Incline Push-Up', icon:'🏋️',
     target:'Pressing strength, built up gradually on the shoulders and wrists',
-    sets:3, reps:'10-15', restSeconds:60,
+    sets:3, reps:'10-15', restSeconds:60, loadType:'none',
     cues:[
       'Hands on a sturdy bench or counter, body in a straight line from head to heels.',
       'Lower your chest toward your hands with elbows at ~45°.',
@@ -596,7 +600,7 @@ const EXERCISES = {
   plank: {
     id:'plank', name:'Plank', icon:'🏋️',
     target:'Core stability — keeps power going into the pedals, not into a swaying bike',
-    sets:3, reps:'hold', restSeconds:45, holdSeconds:35,
+    sets:3, reps:'hold', restSeconds:45, holdSeconds:35, loadType:'hold',
     cues:[
       'Forearms down, elbows under shoulders.',
       'Straight line from shoulders to hips to heels — don\'t let your hips sag or pike up.',
@@ -611,7 +615,7 @@ const EXERCISES = {
   glute_bridge: {
     id:'glute_bridge', name:'Glute Bridge', icon:'🏋️',
     target:'Extra glute work — cheap, joint-friendly, directly climbing-relevant',
-    sets:2, reps:'12-15', restSeconds:45,
+    sets:2, reps:'12-15', restSeconds:45, loadType:'none',
     cues:[
       'Lie on your back, knees bent, feet flat on the floor hip-width apart.',
       'Drive through your heels, squeezing your glutes to lift your hips.',
@@ -628,7 +632,7 @@ const EXERCISES = {
   band_pullup: {
     id:'band_pullup', name:'Band-Assisted Pull-Up', icon:'🏋️',
     target:'Finisher — building toward an unassisted pull-up',
-    sets:4, reps:'2-3', restSeconds:90,
+    sets:4, reps:'2-3', restSeconds:90, loadType:'none',
     cues:[
       'Loop a resistance band over the bar, foot or knee in the bottom of the loop.',
       'Start from a full dead hang, shoulders relaxed.',
@@ -687,6 +691,25 @@ async function loadState(){
   logs = (await storageGet('logs')) || {};
   strengthLog = (await storageGet('strengthLog')) || [];
   strengthDatesSet = new Set(strengthLog.map(e=>iso(new Date(e.completedAt))));
+  if(settings && !settings.exerciseOverrides) settings.exerciseOverrides = {};
+  if(settings && !settings.updateUrl) settings.updateUrl = DEFAULT_UPDATE_URL;
+}
+function effectiveSets(ex){
+  const ov = settings.exerciseOverrides && settings.exerciseOverrides[ex.id];
+  return (ov && ov.sets) ? ov.sets : ex.sets;
+}
+function effectiveHoldSeconds(ex){
+  const ov = settings.exerciseOverrides && settings.exerciseOverrides[ex.id];
+  return (ov && ov.holdSeconds) ? ov.holdSeconds : ex.holdSeconds;
+}
+function lastWeightFor(exerciseId){
+  const entries = strengthLog.filter(e=>e.exerciseId===exerciseId && e.weight!=null).sort((a,b)=>b.completedAt-a.completedAt);
+  return entries.length ? Number(entries[0].weight) : null;
+}
+function recommendedWeightFor(exerciseId){
+  const ov = settings.exerciseOverrides && settings.exerciseOverrides[exerciseId];
+  if(ov && ov.recommendedWeight!=null) return ov.recommendedWeight;
+  return lastWeightFor(exerciseId);
 }
 async function saveLogs(){ await storageSet('logs', logs); }
 async function saveSettings(){ await storageSet('settings', settings); }
@@ -1053,8 +1076,13 @@ function buildRpeRow(containerId, selected){
 function openSettingsSheet(){
   openSheet(`
     <h3>Settings</h3>
-    <p class="hint">Adjust your program start date, back up your progress, or reset.</p>
-    <div class="field"><label>Program start date</label><input type="date" id="startDateInput" value="${settings.startDate}"></div>
+    <p class="hint">Version ${APP_VERSION}</p>
+    <div class="field">
+      <label>Update source (raw.githubusercontent.com URL)</label>
+      <input type="text" id="updateUrlInput" placeholder="https://raw.githubusercontent.com/you/repo/main/index.html" value="${settings.updateUrl||''}">
+    </div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="checkUpdateBtn">Check for updates</button></div>
+    <div class="field" style="margin-top:22px;"><label>Program start date</label><input type="date" id="startDateInput" value="${settings.startDate}"></div>
     <div class="sheet-actions"><button class="btn btn-primary" id="saveStartBtn">Save</button></div>
     <div class="sheet-actions"><button class="btn btn-ghost" id="exportBtn">Export progress to file</button></div>
     <div class="sheet-actions"><button class="btn btn-ghost" id="importBtn">Import progress from file</button></div>
@@ -1068,27 +1096,79 @@ function openSettingsSheet(){
   document.getElementById('exportBtn').onclick = exportProgress;
   document.getElementById('importBtn').onclick = ()=>document.getElementById('importFile').click();
   document.getElementById('importFile').onchange = importProgress;
+  document.getElementById('checkUpdateBtn').onclick = async ()=>{
+    settings.updateUrl = document.getElementById('updateUrlInput').value.trim();
+    await saveSettings();
+    checkForUpdate(settings.updateUrl);
+  };
   document.getElementById('resetBtn').onclick = async ()=>{
     document.getElementById('sheetContent').innerHTML = `
       <h3>Reset everything?</h3>
       <p class="hint">This clears your entire log and restarts the program from today. This can't be undone — export a backup first if you want to keep it.</p>
       <div class="sheet-actions"><button class="btn btn-outline-danger" id="confirmReset">Yes, reset</button><button class="btn btn-ghost" id="cancelReset">Cancel</button></div>`;
     document.getElementById('confirmReset').onclick = async ()=>{
-      logs = {}; strengthLog = []; strengthDatesSet = new Set(); settings = {startDate: todayISO()};
+      logs = {}; strengthLog = []; strengthDatesSet = new Set(); settings = {startDate: todayISO(), exerciseOverrides:{}, updateUrl: DEFAULT_UPDATE_URL};
       await saveLogs(); await saveSettings(); await storageSet('strengthLog', strengthLog); closeSheet(); renderAll();
     };
     document.getElementById('cancelReset').onclick = ()=>openSettingsSheet();
   };
 }
 
+/* ================= UPDATE CHECK ================= */
+async function checkForUpdate(url){
+  if(!url){
+    openSheet(`<h3>No update source set</h3><p class="hint">Paste the raw.githubusercontent.com URL of your index.html in Settings first — find it on GitHub by opening index.html and clicking "Raw".</p><div class="sheet-actions"><button class="btn btn-ghost" id="closeU">Close</button></div>`);
+    document.getElementById('closeU').onclick = closeSheet;
+    return;
+  }
+  openSheet(`<h3>Checking…</h3><p class="hint">Fetching the latest version from GitHub.</p>`);
+  let text;
+  try{
+    const res = await fetch(url + (url.includes('?')?'&':'?') + 'cachebust=' + Date.now());
+    text = await res.text();
+  }catch(err){
+    openSheet(`<h3>Couldn't check</h3><p class="hint">Network or CORS error reaching that URL. Double check it's the raw.githubusercontent.com link, not the github.io page.</p><div class="sheet-actions"><button class="btn btn-ghost" id="closeU">Close</button></div>`);
+    document.getElementById('closeU').onclick = closeSheet;
+    return;
+  }
+  const m = text.match(/APP_VERSION\s*=\s*'([^']+)'/);
+  const remoteVersion = m ? m[1] : null;
+  if(!remoteVersion){
+    openSheet(`<h3>Couldn't read version</h3><p class="hint">That file doesn't look like a Gradient build.</p><div class="sheet-actions"><button class="btn btn-ghost" id="closeU">Close</button></div>`);
+    document.getElementById('closeU').onclick = closeSheet;
+    return;
+  }
+  if(remoteVersion === APP_VERSION){
+    openSheet(`<h3>You're up to date</h3><p class="hint">Running ${APP_VERSION}.</p><div class="sheet-actions"><button class="btn btn-ghost" id="closeU">Close</button></div>`);
+    document.getElementById('closeU').onclick = closeSheet;
+    return;
+  }
+  openSheet(`
+    <h3>Update available</h3>
+    <p class="hint">You're on ${APP_VERSION}, GitHub has ${remoteVersion}. We'll download a dated backup of your progress first, then reload the app. Your progress stays on this device either way.</p>
+    <div class="sheet-actions"><button class="btn btn-primary" id="doUpdate">Back up & update</button><button class="btn btn-ghost" id="cancelUpdate">Not now</button></div>
+  `);
+  document.getElementById('cancelUpdate').onclick = closeSheet;
+  document.getElementById('doUpdate').onclick = ()=>{
+    exportProgress();
+    document.getElementById('sheetContent').innerHTML = `<h3>Updating…</h3><p class="hint">Backup downloaded. Reloading the app now.</p>`;
+    setTimeout(()=>{ location.href = location.pathname + '?v=' + Date.now(); }, 1200);
+  };
+}
+
 /* ================= EXPORT / IMPORT ================= */
+function timestampForFilename(){
+  const d = new Date();
+  const pad = n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
 function exportProgress(){
-  const payload = {app:'gradient', version:1, exportedAt:new Date().toISOString(), settings, logs, strengthLog};
+  const payload = {app:'gradient', version:1, appVersion:APP_VERSION, exportedAt:new Date().toISOString(), settings, logs, strengthLog};
   const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `gradient-backup-${todayISO()}.json`;
+  a.download = `gradient-backup-${timestampForFilename()}.json`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -1108,6 +1188,7 @@ function importProgress(e){
         return;
       }
       settings = data.settings;
+      if(!settings.exerciseOverrides) settings.exerciseOverrides = {};
       logs = data.logs || {};
       strengthLog = data.strengthLog || [];
       strengthDatesSet = new Set(strengthLog.map(en=>iso(new Date(en.completedAt))));
@@ -1136,7 +1217,7 @@ function openOnboarding(){
   `);
   document.getElementById('overlay').style.cursor='default';
   document.getElementById('onboardGo').onclick = async ()=>{
-    settings = {startDate: document.getElementById('onboardDate').value};
+    settings = {startDate: document.getElementById('onboardDate').value, exerciseOverrides:{}, updateUrl: DEFAULT_UPDATE_URL};
     await saveSettings();
     closeSheet(); renderAll();
   };
@@ -1275,6 +1356,26 @@ document.getElementById('playerPause').onclick = ()=>{
   document.getElementById('playerPause').textContent = activePlayer.paused ? 'Resume' : 'Pause';
   document.getElementById('pedalRotor').style.animationPlayState = activePlayer.paused ? 'paused' : 'running';
 };
+document.getElementById('playerRestart').onclick = ()=>{
+  if(!activePlayer) return;
+  openSheet(`
+    <h3>Restart this session?</h3>
+    <p class="hint">Jump back to the very first segment. Nothing gets logged until you finish.</p>
+    <div class="sheet-actions"><button class="btn btn-primary" id="csRestartYes">Restart</button><button class="btn btn-ghost" id="csRestartNo">Cancel</button></div>
+  `);
+  document.getElementById('csRestartNo').onclick = closeSheet;
+  document.getElementById('csRestartYes').onclick = ()=>{
+    closeSheet();
+    activePlayer.idx = 0;
+    activePlayer.remaining = activePlayer.segments[0].seconds;
+    activePlayer.paused = false;
+    activePlayer.kcalBurned = 0;
+    document.getElementById('playerPause').textContent = 'Pause';
+    document.getElementById('pedalRotor').style.animationPlayState = 'running';
+    renderPlayerSegment();
+    tickPlayer(true);
+  };
+};
 document.getElementById('playerSkip').onclick = ()=>{
   if(!activePlayer) return;
   activePlayer.remaining = 0;
@@ -1325,14 +1426,28 @@ function finishPlayer(){
 
 /* ================= STRENGTH VIEW ================= */
 function renderStrengthView(){
-  document.getElementById('exerciseList').innerHTML = Object.values(EXERCISES).map(ex=>`
+  document.getElementById('exerciseList').innerHTML = Object.values(EXERCISES).map(ex=>{
+    const sets = effectiveSets(ex);
+    const scaled = sets < ex.sets ? ' · scaled back' : '';
+    let metaLine;
+    if(ex.loadType==='hold'){
+      const hold = effectiveHoldSeconds(ex);
+      metaLine = `${sets} sets × ${hold}s hold${hold!==ex.holdSeconds? ' (adjusted)':''}`;
+    } else if(ex.loadType==='weight' || ex.loadType==='weight_optional'){
+      const w = recommendedWeightFor(ex.id);
+      metaLine = `${sets} sets × ${ex.reps} reps${w!=null? ` · try ${w}kg` : ''}`;
+    } else {
+      metaLine = `${sets} sets × ${ex.reps} reps`;
+    }
+    return `
     <div class="ex-card" data-id="${ex.id}">
       <div class="ex-icon">${ex.icon}</div>
       <div class="ex-info">
         <div class="ex-name">${ex.name}</div>
-        <div class="ex-meta">${ex.holdSeconds? `${ex.sets} sets × ${ex.holdSeconds}s hold` : `${ex.sets} sets × ${ex.reps} reps`} · ${ex.target}</div>
+        <div class="ex-meta">${metaLine}${scaled} · ${ex.target}</div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   document.querySelectorAll('#exerciseList .ex-card').forEach(el=>{
     el.onclick = ()=>openExercise(el.dataset.id);
   });
@@ -1342,27 +1457,44 @@ function renderStrengthView(){
 let activeExercise = null;
 
 function openExercise(id){
-  const ex = EXERCISES[id];
+  const base = EXERCISES[id];
+  const ex = Object.assign({}, base, {sets: effectiveSets(base), holdSeconds: base.holdSeconds ? effectiveHoldSeconds(base) : base.holdSeconds});
+  activeExercise = { id, ex, demoTimer:null, restTimer:null, holdTimer:null };
+  document.getElementById('exTitle').textContent = ex.name;
+  document.getElementById('exercisePlayer').classList.add('active');
+  resetExerciseState();
+}
+
+function resetExerciseState(){
+  const ex = activeExercise.ex;
   const holdMode = !!ex.holdSeconds;
-  activeExercise = {
-    id, ex,
+  stopDemoLoop();
+  if(activeExercise.restTimer) clearInterval(activeExercise.restTimer);
+  if(activeExercise.holdTimer) clearInterval(activeExercise.holdTimer);
+  Object.assign(activeExercise, {
     setIndex: 0,
-    state: holdMode ? 'hold' : 'set', // 'set' | 'hold' | 'rest'
+    state: holdMode ? 'hold' : 'set',
     restRemaining: ex.restSeconds,
     holdRemaining: ex.holdSeconds || 0,
     demoIdx: 0,
-    demoTimer: null,
-    restTimer: null,
-    holdTimer: null,
-  };
-  document.getElementById('exTitle').textContent = ex.name;
-  document.getElementById('exercisePlayer').classList.add('active');
+  });
   renderFilmstrip();
   renderExAction();
   updateFigureStage();
   startDemoLoop();
   if(holdMode){ activeExercise.holdTimer = setInterval(tickHold, 1000); }
 }
+
+document.getElementById('exRestart').onclick = ()=>{
+  if(!activeExercise) return;
+  openSheet(`
+    <h3>Restart this exercise?</h3>
+    <p class="hint">Jump back to Set 1. Nothing gets logged until you finish.</p>
+    <div class="sheet-actions"><button class="btn btn-primary" id="csExRestartYes">Restart</button><button class="btn btn-ghost" id="csExRestartNo">Cancel</button></div>
+  `);
+  document.getElementById('csExRestartNo').onclick = closeSheet;
+  document.getElementById('csExRestartYes').onclick = ()=>{ closeSheet(); resetExerciseState(); };
+};
 
 function renderFilmstrip(){
   const ex = activeExercise.ex;
@@ -1506,20 +1638,106 @@ function finishExercise(){
   const {id, ex} = activeExercise;
   document.getElementById('exercisePlayer').classList.remove('active');
   activeExercise = null;
+  const isWeight = ex.loadType==='weight' || ex.loadType==='weight_optional';
+  const prefillWeight = recommendedWeightFor(id);
+  const weightFieldHTML = isWeight ? `
+    <div class="field"><label>Weight used (kg)${ex.loadType==='weight_optional'?' — optional':''}</label>
+      <input type="number" id="exFinWeight" inputmode="decimal" step="0.5" placeholder="e.g. 10" value="${prefillWeight!=null?prefillWeight:''}"></div>` : '';
   openSheet(`
     <h3>${ex.name} done 💪</h3>
     <p class="hint">${ex.sets} sets complete — nice work.</p>
+    ${weightFieldHTML}
     <div class="field"><label>How did it feel? (RPE 1–10)</label><div class="rpe-row" id="exFinRpe"></div></div>
-    <div class="field"><label>Notes (optional)</label><textarea id="exFinNotes" placeholder="Weight used, form notes..."></textarea></div>
+    <div class="field"><label>Notes (optional)</label><textarea id="exFinNotes" placeholder="Form notes..."></textarea></div>
     <div class="sheet-actions"><button class="btn btn-done" id="exFinSave">Save</button></div>
   `);
   buildRpeRow('exFinRpe');
   document.getElementById('exFinSave').onclick = async ()=>{
     const rpe = document.querySelector('#exFinRpe .rpe-pill.sel');
     const notes = document.getElementById('exFinNotes').value;
-    await saveStrengthLog({exerciseId:id, sets:ex.sets, completedAt:Date.now(), rpe: rpe?rpe.dataset.v:null, notes: notes||null});
+    const weightInput = document.getElementById('exFinWeight');
+    const weight = weightInput && weightInput.value ? Number(weightInput.value) : null;
+    const rpeVal = rpe ? Number(rpe.dataset.v) : null;
+    await saveStrengthLog({exerciseId:id, sets:ex.sets, completedAt:Date.now(), rpe: rpeVal, weight, notes: notes||null});
     closeSheet();
     renderAll();
+    const loadShown = await maybeSuggestLoadChange(id, weight, rpeVal);
+    if(!loadShown) await maybeSuggestScaleBack(id);
+  };
+}
+
+/* ================= LOAD / HOLD-TIME PROGRESSION (RPE autoregulation) ================= */
+// Standard autoregulation heuristic: RPE 1-4 = too easy → nudge up ~5-10%.
+// RPE 5-7 = right in the zone → hold. RPE 8-10 = too hard → ease back ~10% to protect form.
+async function maybeSuggestLoadChange(exerciseId, weight, rpe){
+  if(rpe==null) return false;
+  const base = EXERCISES[exerciseId];
+  if(base.loadType==='hold'){
+    const current = effectiveHoldSeconds(base);
+    let next = current, note = '';
+    if(rpe<=4){ next = Math.round((current*1.1)/5)*5; note = 'that felt light — try holding a bit longer next time'; }
+    else if(rpe>=8){ next = Math.max(15, Math.round((current*0.9)/5)*5); note = 'that felt very hard — ease off a little to protect your form'; }
+    if(next===current) return false;
+    openSheet(`
+      <h3>Adjust the hold?</h3>
+      <p class="hint">${base.name} — ${note}. Move from ${current}s to ${next}s?</p>
+      <div class="sheet-actions"><button class="btn btn-primary" id="loadYes">Update to ${next}s</button><button class="btn btn-ghost" id="loadNo">Keep ${current}s</button></div>
+    `);
+    document.getElementById('loadNo').onclick = closeSheet;
+    document.getElementById('loadYes').onclick = async ()=>{
+      settings.exerciseOverrides[exerciseId] = Object.assign({}, settings.exerciseOverrides[exerciseId], {holdSeconds: next});
+      await saveSettings(); closeSheet(); renderAll();
+    };
+    return true;
+  }
+  if((base.loadType==='weight' || base.loadType==='weight_optional') && weight!=null && weight>0){
+    let next = weight, note = '';
+    if(rpe<=4){ next = Math.round((weight*1.075)*2)/2; note = 'that felt light — try a bit more next time'; }
+    else if(rpe>=8){ next = Math.max(1, Math.round((weight*0.9)*2)/2); note = 'that felt very hard — ease back slightly to protect form'; }
+    if(next===weight) return false;
+    openSheet(`
+      <h3>Adjust the load?</h3>
+      <p class="hint">${base.name} — ${note}. Move from ${weight}kg to ${next}kg?</p>
+      <div class="sheet-actions"><button class="btn btn-primary" id="loadYes">Update to ${next}kg</button><button class="btn btn-ghost" id="loadNo">Keep ${weight}kg</button></div>
+    `);
+    document.getElementById('loadNo').onclick = async ()=>{
+      settings.exerciseOverrides[exerciseId] = Object.assign({}, settings.exerciseOverrides[exerciseId], {recommendedWeight: weight});
+      await saveSettings(); closeSheet();
+    };
+    document.getElementById('loadYes').onclick = async ()=>{
+      settings.exerciseOverrides[exerciseId] = Object.assign({}, settings.exerciseOverrides[exerciseId], {recommendedWeight: next});
+      await saveSettings(); closeSheet(); renderAll();
+    };
+    return true;
+  }
+  return false;
+}
+
+/* ================= ADAPTIVE INTENSITY: low-RPE streak suggestion ================= */
+async function maybeSuggestScaleBack(exerciseId){
+  const entries = strengthLog.filter(e=>e.exerciseId===exerciseId).sort((a,b)=>b.completedAt-a.completedAt);
+  const last3 = entries.slice(0,3);
+  if(last3.length < 3) return;
+  const allLow = last3.every(e=>e.rpe!=null && Number(e.rpe) < 3);
+  if(!allLow) return;
+  const marker = last3[0].completedAt;
+  const ov = settings.exerciseOverrides[exerciseId];
+  if(ov && ov.suggestedFor === marker) return; // already asked about this exact streak
+  const base = EXERCISES[exerciseId];
+  const current = effectiveSets(base);
+  if(current <= 2) return; // already at the floor
+  openSheet(`
+    <h3>${base.name} feeling light?</h3>
+    <p class="hint">You've rated this below 3/10 three sessions in a row. Want to scale it back a notch — ${current} sets → ${current-1}?</p>
+    <div class="sheet-actions"><button class="btn btn-primary" id="scaleYes">Scale back</button><button class="btn btn-ghost" id="scaleNo">Keep as is</button></div>
+  `);
+  document.getElementById('scaleNo').onclick = async ()=>{
+    settings.exerciseOverrides[exerciseId] = Object.assign({}, ov, {suggestedFor: marker});
+    await saveSettings(); closeSheet();
+  };
+  document.getElementById('scaleYes').onclick = async ()=>{
+    settings.exerciseOverrides[exerciseId] = Object.assign({}, ov, {sets: current-1, suggestedFor: marker});
+    await saveSettings(); closeSheet(); renderAll();
   };
 }
 
@@ -1554,7 +1772,7 @@ function renderAll(){
   if(!settings || !settings.startDate){
     openOnboarding();
     // render a placeholder profile/today behind the sheet using today as tentative start
-    settings = {startDate: todayISO()};
+    settings = {startDate: todayISO(), exerciseOverrides:{}, updateUrl: DEFAULT_UPDATE_URL};
   }
   renderAll();
 })();
