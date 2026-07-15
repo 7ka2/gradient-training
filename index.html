@@ -42,7 +42,7 @@
   #app{max-width:480px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column; position:relative;}
 
   /* ---------- Header ---------- */
-  header.top{padding:calc(20px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) 8px calc(20px + env(safe-area-inset-left)); display:flex; align-items:center; justify-content:space-between;}
+  header.top{position:fixed; top:0; left:0; right:0; max-width:480px; margin:0 auto; z-index:40; background:linear-gradient(180deg, var(--bg) 82%, transparent); box-sizing:border-box; height:calc(64px + env(safe-area-inset-top)); padding:env(safe-area-inset-top) calc(20px + env(safe-area-inset-right)) 0 calc(20px + env(safe-area-inset-left)); display:flex; align-items:center; justify-content:space-between;}
   .brand{display:flex; flex-direction:column; line-height:1;}
   .brand .name{font-size:26px; letter-spacing:0.04em; text-transform:uppercase;}
   .brand .sub{font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.12em; margin-top:2px;}
@@ -50,7 +50,7 @@
   .gear:active{background:var(--panel-2);}
 
   /* ---------- Elevation profile (signature element) ---------- */
-  .profile-wrap{padding:6px 20px 14px; cursor:pointer;}
+  .profile-wrap{padding:calc(64px + env(safe-area-inset-top) + 10px) 20px 14px; cursor:pointer;}
   .profile-wrap svg{width:100%; display:block; overflow:visible;}
   .profile-caption{display:flex; justify-content:space-between; font-size:11px; color:var(--text-faint); margin-top:6px; text-transform:uppercase; letter-spacing:0.08em;}
 
@@ -100,6 +100,19 @@
   .badge-dot{width:9px; height:9px; border-radius:2px;}
   .prog-icon{font-size:17px; flex-shrink:0;}
   .filter-chips{display:flex; gap:8px; margin-bottom:14px;}
+  .cal-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
+  .cal-nav{width:36px; height:36px; border-radius:10px; background:var(--panel); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:18px; color:var(--text-dim); cursor:pointer;}
+  .cal-month{font-size:17px; font-weight:600; font-family:'Barlow Condensed',sans-serif;}
+  .cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:4px;}
+  .cal-weekday-row{margin-bottom:4px;}
+  .cal-wd{text-align:center; font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.05em; padding-bottom:2px;}
+  .cal-cell{aspect-ratio:1; border-radius:10px; background:var(--panel); border:1px solid var(--line); display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; gap:3px;}
+  .cal-cell.empty{background:transparent; border-color:transparent; cursor:default;}
+  .cal-cell.today{border-color:var(--hard);}
+  .cal-cell.missed{border-color:rgba(224,87,74,0.35);}
+  .cal-daynum{font-size:13px; font-family:'JetBrains Mono',monospace; color:var(--text);}
+  .cal-dots{display:flex; gap:3px; height:6px;}
+  .cal-dot{width:6px; height:6px; border-radius:50%;}
   .chip{padding:8px 14px; border-radius:99px; background:var(--panel); border:1px solid var(--line); font-size:12.5px; font-weight:600; color:var(--text-dim); cursor:pointer;}
   .chip.active{background:var(--hard); color:#1A1206; border-color:var(--hard);}
 
@@ -109,6 +122,7 @@
   .stat-box b{display:block; font-size:26px; font-family:'JetBrains Mono',monospace;}
   .stat-box span{font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.07em;}
   .log-row{display:flex; justify-content:space-between; align-items:center; padding:11px 0; border-top:1px solid var(--line); font-size:13.5px;}
+  .log-feel{font-size:22px; flex-shrink:0;}
   .log-row .lname{font-weight:500;}
   .log-row .lmeta{color:var(--text-faint); font-size:11.5px;}
 
@@ -238,7 +252,7 @@
     </div>
 
     <div class="view" id="view-week">
-      <h2 class="section-title">Week <span id="weekNumLabel"></span></h2>
+      <h2 class="section-title">Calendar</h2>
       <div id="weekList"></div>
     </div>
 
@@ -259,7 +273,7 @@
   <nav class="bottom">
     <div class="nav-inner">
       <div class="nav-btn active" data-view="today">Today</div>
-      <div class="nav-btn" data-view="week">Week</div>
+      <div class="nav-btn" data-view="week">Calendar</div>
       <div class="nav-btn" data-view="progress">Progress</div>
       <div class="nav-btn" data-view="strength">Strength</div>
     </div>
@@ -336,7 +350,7 @@
 </div>
 
 <script>
-const APP_VERSION = 'v1.3';
+const APP_VERSION = 'v1.4';
 const DEFAULT_UPDATE_URL = 'https://raw.githubusercontent.com/7ka2/gradient-training/refs/heads/main/index.html';
 /* ================= PROGRAM DEFINITION ================= */
 const DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -658,6 +672,7 @@ let strengthDatesSet = new Set();
 let currentView = 'today';
 let activePlayer = null;
 let programmeFilter = 'all'; // 'all' | 'spin' | 'strength'
+let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
 function iso(d){ const x=new Date(d); x.setHours(0,0,0,0); return x.toISOString().slice(0,10); }
 function todayISO(){ return iso(new Date()); }
@@ -948,20 +963,88 @@ function dayEntryCardHTML(entry, mode){
   return cards;
 }
 
-function renderWeekView(){
-  const today = getTodayEntry();
-  document.getElementById('weekNumLabel').textContent = `${today.weekIdx+1} of ${TOTAL_WEEKS} — ${SCHEDULE[today.weekIdx].focus}`;
-  const seq = buildDaySequence(6).slice(-7);
+function renderCalendarView(){
+  const monthStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+  const monthEnd = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth()+1, 0);
+  const daysInMonth = monthEnd.getDate();
+  const todayD = new Date(); todayD.setHours(0,0,0,0);
+  const todayStr = todayISO();
+  const daysAheadNeeded = Math.max(0, Math.ceil((monthEnd-todayD)/86400000));
+  const seq = buildDaySequence(daysAheadNeeded);
+  const seqByDate = {}; seq.forEach(e=>{ seqByDate[e.dISO]=e; });
+
+  const startOffset = (monthStart.getDay()+6)%7; // Monday-first
+  let cells = '';
+  for(let i=0;i<startOffset;i++) cells += `<div class="cal-cell empty"></div>`;
+  for(let d=1; d<=daysInMonth; d++){
+    const date = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), d);
+    const dISO = iso(date);
+    const bikeDone = !!logs[dISO];
+    const strengthDone = strengthDatesSet.has(dISO);
+    const isToday = dISO===todayStr;
+    const entry = seqByDate[dISO];
+    const isPastMissed = date < todayD && entry && !TYPES[entry.bikeKey].rest && !bikeDone;
+    const dots = [];
+    if(programmeFilter!=='strength' && bikeDone) dots.push(`<span class="cal-dot" style="background:var(--easy)"></span>`);
+    if(programmeFilter!=='spin' && strengthDone) dots.push(`<span class="cal-dot" style="background:var(--grind)"></span>`);
+    cells += `<div class="cal-cell ${isToday?'today':''} ${isPastMissed?'missed':''}" data-diso="${dISO}">
+      <div class="cal-daynum">${d}</div>
+      <div class="cal-dots">${dots.join('')}</div>
+    </div>`;
+  }
+
   document.getElementById('weekList').innerHTML = `
     <div class="filter-chips">
       <div class="chip ${programmeFilter==='all'?'active':''}" data-f="all">All</div>
       <div class="chip ${programmeFilter==='spin'?'active':''}" data-f="spin">${TYPE_ICON} Spin</div>
       <div class="chip ${programmeFilter==='strength'?'active':''}" data-f="strength">${STRENGTH_ICON} Strength</div>
-    </div>` + seq.map(entry=>dayEntryCardHTML(entry,'full')).join('');
+    </div>
+    <div class="cal-header">
+      <div class="cal-nav" id="calPrev">‹</div>
+      <div class="cal-month">${calendarMonth.toLocaleDateString(undefined,{month:'long', year:'numeric'})}</div>
+      <div class="cal-nav" id="calNext">›</div>
+    </div>
+    <div class="cal-grid cal-weekday-row">${['Mo','Tu','We','Th','Fr','Sa','Su'].map(w=>`<div class="cal-wd">${w}</div>`).join('')}</div>
+    <div class="cal-grid">${cells}</div>
+  `;
   document.querySelectorAll('#weekList .chip').forEach(el=>{
-    el.onclick = ()=>{ programmeFilter = el.dataset.f; renderWeekView(); };
+    el.onclick = ()=>{ programmeFilter = el.dataset.f; renderCalendarView(); };
   });
-  attachDayCardHandlers('#weekList');
+  document.getElementById('calPrev').onclick = ()=>{ calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth()-1, 1); renderCalendarView(); };
+  document.getElementById('calNext').onclick = ()=>{ calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth()+1, 1); renderCalendarView(); };
+  document.querySelectorAll('#weekList .cal-cell:not(.empty)').forEach(el=>{
+    el.onclick = ()=>openCalendarDaySheet(el.dataset.diso);
+  });
+}
+
+function openCalendarDaySheet(dISO){
+  const target = new Date(dISO+'T00:00:00');
+  const todayD = new Date(); todayD.setHours(0,0,0,0);
+  const dateLabel = target.toLocaleDateString(undefined,{weekday:'short', month:'short', day:'numeric'});
+  const bikeLog = logs[dISO];
+  const strengthEntries = strengthLog.filter(e=>iso(new Date(e.completedAt))===dISO);
+
+  if(!bikeLog && strengthEntries.length===0 && target>=todayD){
+    // Nothing logged yet for a current/future day — fall back to the actionable day sheet
+    openDaySheet(dISO, 'bike');
+    return;
+  }
+
+  let body = `<h3>${dateLabel}</h3>`;
+  if(!bikeLog && strengthEntries.length===0){
+    body += `<p class="hint">No session logged for this day.</p>`;
+  } else {
+    if(bikeLog){
+      const t = TYPES[bikeLog.typeKey] || {name:bikeLog.typeKey};
+      body += `<p style="color:var(--text-dim); font-size:14px; margin:0 0 8px;">${TYPE_ICON} ${t.name}${bikeLog.rpe?(' · RPE '+bikeLog.rpe):''}${bikeLog.notes?('<br>“'+escapeHtml(bikeLog.notes)+'”'):''}</p>`;
+    }
+    strengthEntries.forEach(e=>{
+      const exType = EXERCISES[e.exerciseId] || {name:e.exerciseId};
+      body += `<p style="color:var(--text-dim); font-size:14px; margin:0 0 8px;">${STRENGTH_ICON} ${exType.name}${e.rpe!=null?(' · RPE '+e.rpe):''}${e.weight?(' · '+e.weight+'kg'):''}</p>`;
+    });
+  }
+  openSheet(body + `<div class="sheet-actions"><button class="btn btn-ghost" id="closeCalSheet">Close</button></div>`);
+  document.getElementById('closeCalSheet').onclick = closeSheet;
 }
 
 function attachDayCardHandlers(containerSel){
@@ -1015,8 +1098,8 @@ function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; 
 
 /* ================= RENDER: PROGRESS VIEW ================= */
 function renderProgressView(){
-  const entries = Object.entries(logs);
-  const completedSessions = entries.filter(([,v])=>v.typeKey!=='rest').length;
+  const bikeEntries = Object.entries(logs);
+  const completedSessions = bikeEntries.filter(([,v])=>v.typeKey!=='rest').length;
   const seq = buildDaySequence(0);
   // streak: consecutive scheduled non-rest days completed, walking backward from today
   let streak=0;
@@ -1026,23 +1109,44 @@ function renderProgressView(){
     if(entry.bikeDone) streak++; else break;
   }
   const today = seq[seq.length-1];
-  const weekDone = SCHEDULE[today.weekIdx].days.filter((d,i)=>{
-    const dISO = seq.find(e=>e.weekIdx===today.weekIdx && e.dayIdx===i);
-    return dISO && dISO.bikeDone;
-  }).length;
+  const weekEntries = seq.filter(e=>e.weekIdx===today.weekIdx);
+  const weekScheduled = weekEntries.filter(e=>!TYPES[e.bikeKey].rest).length || weekEntries.length;
+  const weekDone = weekEntries.filter(e=>e.bikeDone).length;
+
+  // Average how-did-it-feel score across the last 7 days, bike + strength combined —
+  // a quick pulse check on whether the current load feels right.
+  const sevenDaysAgo = Date.now() - 7*86400000;
+  const recentRpes = [];
+  bikeEntries.forEach(([dISO,v])=>{ if(v.rpe!=null && new Date(dISO+'T12:00:00').getTime()>=sevenDaysAgo) recentRpes.push(Number(v.rpe)); });
+  strengthLog.forEach(e=>{ if(e.rpe!=null && e.completedAt>=sevenDaysAgo) recentRpes.push(Number(e.rpe)); });
+  const avgRpe = recentRpes.length ? (recentRpes.reduce((a,b)=>a+b,0)/recentRpes.length).toFixed(1) : '—';
 
   document.getElementById('statGrid').innerHTML = `
-    <div class="stat-box"><b>${completedSessions}</b><span>Sessions logged</span></div>
+    <div class="stat-box"><b>${completedSessions}</b><span>Total rides logged</span></div>
     <div class="stat-box"><b>${streak}</b><span>Day streak</span></div>
-    <div class="stat-box"><b>${weekDone}/7</b><span>This week</span></div>
-    <div class="stat-box"><b>${today.weekIdx+1}/${TOTAL_WEEKS}</b><span>Current week</span></div>
+    <div class="stat-box"><b>${weekDone}/${weekScheduled}</b><span>Rides done this week</span></div>
+    <div class="stat-box"><b>${today.weekIdx+1}/${TOTAL_WEEKS}</b><span>Programme week</span></div>
+    <div class="stat-box"><b>${avgRpe}</b><span>Avg effort, last 7 days</span></div>
   `;
 
-  const sorted = entries.sort((a,b)=> b[0].localeCompare(a[0])).slice(0,25);
-  document.getElementById('historyList').innerHTML = sorted.length ? sorted.map(([dISO,v])=>{
-    const type = TYPES[v.typeKey] || {name:v.typeKey};
-    const d = new Date(dISO+'T00:00:00');
-    return `<div class="log-row"><div><div class="lname">${type.name}</div><div class="lmeta">${d.toLocaleDateString(undefined,{month:'short',day:'numeric'})}${v.rpe?(' · RPE '+v.rpe):''}</div></div></div>`;
+  // Unified history — rides and strength sessions together, most recent first
+  const bikeHist = bikeEntries.map(([dISO,v])=>({
+    ts: new Date(dISO+'T12:00:00').getTime(), dISO, icon:TYPE_ICON,
+    name:(TYPES[v.typeKey]||{name:v.typeKey}).name, rpe:v.rpe
+  }));
+  const strengthHist = strengthLog.map(e=>({
+    ts:e.completedAt, dISO: iso(new Date(e.completedAt)), icon:STRENGTH_ICON,
+    name:(EXERCISES[e.exerciseId]||{name:e.exerciseId}).name, rpe:e.rpe
+  }));
+  const combined = bikeHist.concat(strengthHist).sort((a,b)=>b.ts-a.ts).slice(0,30);
+
+  document.getElementById('historyList').innerHTML = combined.length ? combined.map(item=>{
+    const d = new Date(item.dISO+'T00:00:00');
+    const feel = item.rpe!=null ? RPE_LADDER[tierIndexForRpe(Number(item.rpe))] : null;
+    return `<div class="log-row">
+      <div><div class="lname">${item.icon} ${item.name}</div><div class="lmeta">${d.toLocaleDateString(undefined,{month:'short',day:'numeric'})}${item.rpe!=null?(' · RPE '+item.rpe):''}</div></div>
+      ${feel ? `<div class="log-feel" title="${feel.label}">${feel.icon}</div>` : ''}
+    </div>`;
   }).join('') : `<p class="hint" style="margin-top:0;">No sessions logged yet.</p>`;
 }
 
@@ -1749,7 +1853,7 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     currentView = btn.dataset.view;
     document.getElementById('view-'+currentView).classList.add('active');
-    if(currentView==='week') renderWeekView();
+    if(currentView==='week') renderCalendarView();
     if(currentView==='progress') renderProgressView();
     if(currentView==='strength') renderStrengthView();
   };
@@ -1763,7 +1867,7 @@ document.getElementById('profileWrap').onclick = ()=>{
 function renderAll(){
   renderProfile();
   renderToday();
-  if(currentView==='week') renderWeekView();
+  if(currentView==='week') renderCalendarView();
   if(currentView==='progress') renderProgressView();
 }
 
