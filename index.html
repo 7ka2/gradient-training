@@ -198,6 +198,8 @@
   .figure-stage svg{width:160px; height:170px;}
   .set-badge{display:inline-block; font-size:13px; text-transform:uppercase; letter-spacing:0.1em; padding:6px 16px; border-radius:99px; background:rgba(242,153,74,0.16); color:var(--hard); margin-bottom:10px;}
   .set-target{color:var(--text-dim); font-size:14px; margin-bottom:18px;}
+  .load-callout{background:rgba(242,153,74,0.12); border:1px solid rgba(242,153,74,0.35); border-radius:12px; padding:10px 16px; font-size:15px; font-weight:600; margin-bottom:16px; display:inline-block;}
+  .load-callout span{font-weight:500; color:var(--text-faint); font-size:12px;}
   .rest-label{font-size:12px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:10px;}
   .ex-cues{margin-top:20px; text-align:left; width:100%; max-width:290px;}
   .player-kind{font-size:13px; text-transform:uppercase; letter-spacing:0.14em; padding:6px 16px; border-radius:99px; margin-bottom:16px;}
@@ -357,7 +359,7 @@
 </div>
 
 <script>
-const APP_VERSION = 'v1.5';
+const APP_VERSION = 'v1.7';
 const DEFAULT_UPDATE_URL = 'https://raw.githubusercontent.com/7ka2/gradient-training/refs/heads/main/index.html';
 /* ================= PROGRAM DEFINITION ================= */
 const DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -499,25 +501,31 @@ function pickFood(seed){
 
 const PHASE1 = [
   {bike:'steady', strength:false}, {bike:'steady', strength:true}, {bike:'surges', strength:false},
-  {bike:'steady', strength:false}, {bike:'steady', strength:true}, {bike:'outdoor', strength:false}, {bike:'rest', strength:false},
+  {bike:'rest', strength:false}, {bike:'steady', strength:true}, {bike:'outdoor', strength:false}, {bike:'rest', strength:false},
 ];
 const PHASE2 = [
-  {bike:'threshold', strength:false}, {bike:'lowcad', strength:false}, {bike:'recovery', strength:false},
-  {bike:'threshold', strength:false}, {bike:'recovery', strength:true}, {bike:'outdoor', strength:false}, {bike:'rest', strength:true},
+  {bike:'threshold', strength:false}, {bike:'rest', strength:true}, {bike:'lowcad', strength:false},
+  {bike:'rest', strength:false}, {bike:'recovery', strength:true}, {bike:'outdoor', strength:false}, {bike:'rest', strength:false},
 ];
 const PHASE3 = [
-  {bike:'threshold', strength:false}, {bike:'lowcad', strength:false}, {bike:'vo2', strength:false},
-  {bike:'recovery', strength:true}, {bike:'rest', strength:false}, {bike:'outdoor', strength:false}, {bike:'rest', strength:true},
+  {bike:'threshold', strength:false}, {bike:'rest', strength:true}, {bike:'vo2', strength:false},
+  {bike:'rest', strength:false}, {bike:'recovery', strength:true}, {bike:'outdoor', strength:false}, {bike:'rest', strength:false},
 ];
 
-const SCHEDULE = [];
-for(let i=0;i<3;i++) SCHEDULE.push({phase:1, focus:'Reacclimation', days:PHASE1});
-for(let i=0;i<4;i++) SCHEDULE.push({phase:2, focus:'Threshold & Climbing Strength', days:PHASE2});
-for(let i=0;i<5;i++) SCHEDULE.push({phase:3, focus:'Sharpening', days:PHASE3});
-const TOTAL_WEEKS = SCHEDULE.length; // 12
+// Phase 1 and 2 are a fixed build-up; Phase 3 repeats indefinitely as an open-ended
+// "get in shape and stay there" maintenance loop — there's no programme end date.
+const PHASE1_WEEKS = 4;
+const PHASE2_WEEKS = 5;
+const BUILDUP_WEEKS = PHASE1_WEEKS + PHASE2_WEEKS; // 9 — used for the profile illustration only
+function getWeekSchedule(weekIdx){
+  if(weekIdx < PHASE1_WEEKS) return {phase:1, focus:'Reacclimation', days:PHASE1};
+  if(weekIdx < BUILDUP_WEEKS) return {phase:2, focus:'Threshold & Climbing Strength', days:PHASE2};
+  return {phase:3, focus:'Sharpening & Maintenance', days:PHASE3};
+}
 
-// relative climb-intensity value per week, purely for the profile illustration
-const ELEV = [8,13,17, 28,40,36,48, 54,66,60,80,70];
+// relative climb-intensity value per week of the build-up, purely for the profile illustration.
+// Once in maintenance (Phase 3) the profile holds at "cruising altitude" rather than continuing to climb.
+const ELEV = [8,13,18,24, 34,46,40,54,62];
 
 /* ================= STRENGTH: exercise + pose-illustration data ================= */
 // Simple original line-art figures (not photos), built from small SVG helpers.
@@ -761,12 +769,11 @@ async function saveSettings(){ await storageSet('settings', settings); }
 // If NO training (bike or strength) happens for 7+ consecutive real days, the programme
 // steps back a week to reintroduce load more gently.
 function buildDaySequence(projectDays){
-  const MAX_POS = TOTAL_WEEKS*7;
   const start = new Date(settings.startDate+'T00:00:00');
   const today = new Date(); today.setHours(0,0,0,0);
   let totalRealDays = Math.round((today-start)/86400000);
   if(totalRealDays<0) totalRealDays = 0;
-  if(totalRealDays>500) totalRealDays = 500; // safety cap
+  if(totalRealDays>3650) totalRealDays = 3650; // safety cap (~10 years)
 
   const seq = [];
   let pos = 0, idleDays = 0;
@@ -775,29 +782,27 @@ function buildDaySequence(projectDays){
     const dISO = iso(date);
     const bikeDone = !!logs[dISO];
     const anyTrained = bikeDone || strengthDatesSet.has(dISO);
-    const clamped = Math.min(pos, MAX_POS-1);
-    const weekIdx = Math.floor(clamped/7), dayIdx = clamped%7;
-    const daySched = SCHEDULE[weekIdx].days[dayIdx];
+    const weekIdx = Math.floor(pos/7), dayIdx = pos%7;
+    const daySched = getWeekSchedule(weekIdx).days[dayIdx];
     seq.push({dISO, date, weekIdx, dayIdx, bikeKey:daySched.bike, strengthDay:daySched.strength,
-      bikeDone, strengthDone:strengthDatesSet.has(dISO), pos:clamped, isToday:d===totalRealDays, finished:pos>=MAX_POS});
+      bikeDone, strengthDone:strengthDatesSet.has(dISO), pos, isToday:d===totalRealDays});
 
     if(d>0){
       if(anyTrained){ idleDays = 0; }
       else { idleDays++; if(idleDays>=7){ pos = Math.max(0,pos-7); idleDays = 0; } }
     }
-    if(bikeDone) pos = Math.min(pos+1, MAX_POS);
+    if(bikeDone) pos = pos+1;
   }
 
   let projPos = pos;
   for(let i=1;i<=projectDays;i++){
     const date = addDays(today,i);
     const dISO = iso(date);
-    const clamped = Math.min(projPos, MAX_POS-1);
-    const weekIdx = Math.floor(clamped/7), dayIdx = clamped%7;
-    const daySched = SCHEDULE[weekIdx].days[dayIdx];
+    const weekIdx = Math.floor(projPos/7), dayIdx = projPos%7;
+    const daySched = getWeekSchedule(weekIdx).days[dayIdx];
     seq.push({dISO, date, weekIdx, dayIdx, bikeKey:daySched.bike, strengthDay:daySched.strength,
-      bikeDone: !!logs[dISO], strengthDone: strengthDatesSet.has(dISO), pos:clamped, isToday:false, projected:true, finished:projPos>=MAX_POS});
-    projPos = Math.min(projPos+1, MAX_POS);
+      bikeDone: !!logs[dISO], strengthDone: strengthDatesSet.has(dISO), pos:projPos, isToday:false, projected:true});
+    projPos = projPos+1;
   }
   return seq;
 }
@@ -809,31 +814,44 @@ function getTodayEntry(){
 
 /* ================= RENDER: PROFILE (signature element) ================= */
 function buildProfileSVG(opts){
-  const {width=440,height=110,markerFrac=0} = opts;
+  const {width=440,height=110,markerFrac=0,plateau=false} = opts;
   const n = ELEV.length;
   const padX=6;
-  const w = width - padX*2;
+  const plateauW = plateau ? 74 : 0;
+  const w = (width - padX*2) - plateauW;
   const pts = ELEV.map((v,i)=>({
     x: padX + (i/(n-1))*w,
-    y: height*0.92 - (v/85)*(height*0.72)
+    y: height*0.92 - (v/70)*(height*0.72)
   }));
-  // smooth path via simple bezier through midpoints
+  // smooth build-up path via simple bezier through midpoints
   let d = `M ${pts[0].x},${pts[0].y}`;
   for(let i=0;i<pts.length-1;i++){
     const p0=pts[i], p1=pts[i+1];
     const mx=(p0.x+p1.x)/2;
     d += ` C ${mx},${p0.y} ${mx},${p1.y} ${p1.x},${p1.y}`;
   }
-  const fillD = d + ` L ${pts[n-1].x},${height} L ${pts[0].x},${height} Z`;
 
-  // marker position
-  const mf = Math.max(0, Math.min(1, markerFrac));
-  const idxF = mf*(n-1);
-  const i0=Math.floor(idxF), i1=Math.min(i0+1,n-1), t=idxF-i0;
-  const mx = pts[i0].x + (pts[i1].x-pts[i0].x)*t;
-  const my = pts[i0].y + (pts[i1].y-pts[i0].y)*t;
+  const last = pts[n-1];
+  const plateauEndX = last.x + plateauW;
+  const plateauMidX = last.x + plateauW*0.5;
+  const plateauPath = plateau ? `M ${last.x},${last.y} C ${plateauMidX},${last.y-3} ${plateauMidX},${last.y+3} ${plateauEndX},${last.y}` : '';
 
-  const p1End = (3/12)*w+padX, p2End=(7/12)*w+padX;
+  const fillEndX = plateau ? plateauEndX : last.x;
+  const fillD = d + (plateau ? ` C ${plateauMidX},${last.y-3} ${plateauMidX},${last.y+3} ${plateauEndX},${last.y}` : '') + ` L ${fillEndX},${height} L ${pts[0].x},${height} Z`;
+
+  // marker position: rides the build-up path while climbing, parks on the plateau once in maintenance
+  let mx, my;
+  if(plateau){
+    mx = last.x + plateauW*0.8; my = last.y;
+  } else {
+    const mf = Math.max(0, Math.min(1, markerFrac));
+    const idxF = mf*(n-1);
+    const i0=Math.floor(idxF), i1=Math.min(i0+1,n-1), t=idxF-i0;
+    mx = pts[i0].x + (pts[i1].x-pts[i0].x)*t;
+    my = pts[i0].y + (pts[i1].y-pts[i0].y)*t;
+  }
+
+  const p1End = ((PHASE1_WEEKS-1)/(n-1))*w+padX;
 
   return `
   <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
@@ -841,7 +859,6 @@ function buildProfileSVG(opts){
       <linearGradient id="gradFill" x1="0" y1="0" x2="1" y2="0">
         <stop offset="0%" stop-color="#6FB7E0"/>
         <stop offset="${(p1End/width*100).toFixed(0)}%" stop-color="#6FB7E0"/>
-        <stop offset="${(p2End/width*100).toFixed(0)}%" stop-color="#F2994A"/>
         <stop offset="100%" stop-color="#E0574A"/>
       </linearGradient>
       <linearGradient id="gradFade" x1="0" y1="0" x2="0" y2="1">
@@ -851,6 +868,7 @@ function buildProfileSVG(opts){
     </defs>
     <path d="${fillD}" fill="url(#gradFade)"/>
     <path d="${d}" fill="none" stroke="url(#gradFill)" stroke-width="3" stroke-linecap="round"/>
+    ${plateau ? `<path d="${plateauPath}" fill="none" stroke="#E0574A" stroke-width="3" stroke-linecap="round" stroke-dasharray="1,7"/>` : ''}
     <line x1="${mx}" y1="${my}" x2="${mx}" y2="${height}" stroke="rgba(255,255,255,0.18)" stroke-width="1" stroke-dasharray="2,3"/>
     <circle cx="${mx}" cy="${my}" r="6.5" fill="#10142A" stroke="#F4F1E9" stroke-width="2.5"/>
   </svg>`;
@@ -858,9 +876,10 @@ function buildProfileSVG(opts){
 
 function renderProfile(){
   const today = getTodayEntry();
-  const frac = today.finished ? 1 : (today.weekIdx + today.dayIdx/7)/(TOTAL_WEEKS-1);
-  document.getElementById('profileWrap').innerHTML = buildProfileSVG({markerFrac:frac}) +
-    `<div class="profile-caption"><span>Week 1</span><span>Week ${TOTAL_WEEKS}</span></div>`;
+  const inMaintenance = today.weekIdx >= BUILDUP_WEEKS;
+  const frac = inMaintenance ? 1 : (today.weekIdx + today.dayIdx/7)/(BUILDUP_WEEKS-1);
+  document.getElementById('profileWrap').innerHTML = buildProfileSVG({markerFrac:frac, plateau:inMaintenance}) +
+    `<div class="profile-caption"><span>Week 1</span><span>${inMaintenance ? 'Maintenance' : 'Cruising altitude'}</span></div>`;
 }
 
 /* ================= RENDER: TODAY ================= */
@@ -869,17 +888,12 @@ const TYPE_ICON = '🚴', STRENGTH_ICON = '🏋️';
 
 function renderToday(){
   const today = getTodayEntry();
-  document.getElementById('weekLabel').textContent = today.finished ? 'Program complete' : `Week ${today.weekIdx+1} of ${TOTAL_WEEKS} · ${SCHEDULE[today.weekIdx].focus}`;
-
-  if(today.finished){
-    document.getElementById('todayCardHolder').innerHTML = `
-      <div class="today-card">
-        <div class="tag">Program complete</div>
-        <h1 class="display">Nice climb.</h1>
-        <p class="tagline">You've worked through all ${TOTAL_WEEKS} weeks. Keep riding, or restart the program to reinforce the gains — settings icon above.</p>
-      </div>`;
-    document.getElementById('weekMini').innerHTML='';
-    return;
+  const sched = getWeekSchedule(today.weekIdx);
+  if(today.weekIdx >= BUILDUP_WEEKS){
+    const maintWeek = today.weekIdx - BUILDUP_WEEKS + 1;
+    document.getElementById('weekLabel').textContent = `Maintenance · Week ${maintWeek} · ${sched.focus}`;
+  } else {
+    document.getElementById('weekLabel').textContent = `Week ${today.weekIdx+1} of ${BUILDUP_WEEKS} · ${sched.focus}`;
   }
 
   const key = today.bikeKey;
@@ -930,7 +944,7 @@ function renderToday(){
       <div class="tag">${STRENGTH_ICON} Today's strength</div>
       <h1 class="display" style="font-size:26px;">Full Body Strength</h1>
       <p class="tagline">${STRENGTH_SESSION.length} exercises — squats, hinge, row, push, core.</p>
-      ${doneStrength ? `<button class="btn btn-done" disabled>✓ Logged today</button>` : `<button class="btn btn-primary" id="openStrengthBtn">Open strength session →</button>`}
+      ${doneStrength ? `<button class="btn btn-done" disabled>✓ Logged today</button>` : `<button class="btn btn-primary" id="openStrengthBtn">Start strength session →</button>`}
     </div>`;
   }
 
@@ -953,7 +967,7 @@ function attachTodayHandlers(key, dISO){
   const outdoorBtn = document.getElementById('logOutdoorBtn');
   if(outdoorBtn) outdoorBtn.onclick = ()=>openOutdoorSheet(dISO);
   const openStrengthBtn = document.getElementById('openStrengthBtn');
-  if(openStrengthBtn) openStrengthBtn.onclick = ()=>document.querySelector('.nav-btn[data-view="strength"]').click();
+  if(openStrengthBtn) openStrengthBtn.onclick = startFullSession;
 }
 
 function renderWeekMini(){
@@ -1146,11 +1160,14 @@ function renderProgressView(){
   strengthLog.forEach(e=>{ if(e.rpe!=null && e.completedAt>=sevenDaysAgo) recentRpes.push(Number(e.rpe)); });
   const avgRpe = recentRpes.length ? (recentRpes.reduce((a,b)=>a+b,0)/recentRpes.length).toFixed(1) : '—';
 
+  const progWeekLabel = today.weekIdx >= BUILDUP_WEEKS
+    ? `Maint. wk ${today.weekIdx - BUILDUP_WEEKS + 1}`
+    : `${today.weekIdx+1}/${BUILDUP_WEEKS}`;
   document.getElementById('statGrid').innerHTML = `
     <div class="stat-box"><b>${completedSessions}</b><span>Total rides logged</span></div>
     <div class="stat-box"><b>${streak}</b><span>Day streak</span></div>
     <div class="stat-box"><b>${weekDone}/${weekScheduled}</b><span>Rides done this week</span></div>
-    <div class="stat-box"><b>${today.weekIdx+1}/${TOTAL_WEEKS}</b><span>Programme week</span></div>
+    <div class="stat-box"><b>${progWeekLabel}</b><span>Programme week</span></div>
     <div class="stat-box"><b>${avgRpe}</b><span>Avg effort, last 7 days</span></div>
   `;
 
@@ -1340,7 +1357,7 @@ document.getElementById('overlay').addEventListener('click', (e)=>{ if(e.target.
 function openOnboarding(){
   openSheet(`
     <h3>Welcome back to the bike 🚴</h3>
-    <p class="hint">A ${TOTAL_WEEKS}-week plan to rebuild your climbing legs in 30–40 minutes a day. When would you like to start?</p>
+    <p class="hint">A ${BUILDUP_WEEKS}-week build-up to rebuild your climbing legs, then an open-ended maintenance rhythm to keep it — 30–40 minutes a day. When would you like to start?</p>
     <div class="field"><label>Start date</label><input type="date" id="onboardDate" value="${todayISO()}"></div>
     <div class="sheet-actions"><button class="btn btn-primary" id="onboardGo">Let's go</button></div>
   `);
@@ -1585,9 +1602,11 @@ function finishPlayer(){
 
 /* ================= STRENGTH VIEW ================= */
 function renderStrengthView(){
-  document.getElementById('exerciseList').innerHTML = Object.values(EXERCISES).map(ex=>{
+  const doneToday = STRENGTH_SESSION.filter(id=>strengthLog.some(e=>e.exerciseId===id && iso(new Date(e.completedAt))===todayISO())).length;
+  const listHTML = Object.values(EXERCISES).map(ex=>{
     const sets = effectiveSets(ex);
     const scaled = sets < ex.sets ? ' · scaled back' : '';
+    const doneTodayThis = strengthLog.some(e=>e.exerciseId===ex.id && iso(new Date(e.completedAt))===todayISO());
     let metaLine;
     if(ex.loadType==='hold'){
       const hold = effectiveHoldSeconds(ex);
@@ -1600,19 +1619,51 @@ function renderStrengthView(){
     }
     return `
     <div class="ex-card" data-id="${ex.id}">
-      <div class="ex-icon">${ex.icon}</div>
+      <div class="ex-icon">${doneTodayThis?'✓':ex.icon}</div>
       <div class="ex-info">
         <div class="ex-name">${ex.name}</div>
         <div class="ex-meta">${metaLine}${scaled} · ${ex.target}</div>
       </div>
     </div>`;
   }).join('');
+
+  document.getElementById('exerciseList').innerHTML = `
+    <button class="btn btn-primary" id="startFullSessionBtn" style="margin-bottom:16px;">
+      ${doneToday>0 ? `Continue session (${doneToday}/${STRENGTH_SESSION.length} done today)` : `▶ Start full session (${STRENGTH_SESSION.length} exercises)`}
+    </button>
+    ${listHTML}
+  `;
+  document.getElementById('startFullSessionBtn').onclick = startFullSession;
   document.querySelectorAll('#exerciseList .ex-card').forEach(el=>{
     el.onclick = ()=>openExercise(el.dataset.id);
   });
 }
 
-/* ================= EXERCISE PLAYER (strength trial) ================= */
+/* Guided session: runs every exercise in STRENGTH_SESSION back-to-back, skipping ones
+   already logged today so "Continue session" picks up where you left off. */
+let sessionQueue = null;
+function startFullSession(){
+  const todayStr = todayISO();
+  sessionQueue = STRENGTH_SESSION.filter(id=>!strengthLog.some(e=>e.exerciseId===id && iso(new Date(e.completedAt))===todayStr));
+  if(sessionQueue.length===0){
+    openSheet(`<h3>Already done 💪</h3><p class="hint">Every exercise in today's session is logged.</p><div class="sheet-actions"><button class="btn btn-ghost" id="closeFS">Close</button></div>`);
+    document.getElementById('closeFS').onclick = closeSheet;
+    return;
+  }
+  openNextInQueue();
+}
+function openNextInQueue(){
+  if(!sessionQueue || sessionQueue.length===0){
+    sessionQueue = null;
+    openSheet(`<h3>Session complete 🎉</h3><p class="hint">Nice work — that's the full strength session for today.</p><div class="sheet-actions"><button class="btn btn-done" id="closeFS">Done</button></div>`);
+    document.getElementById('closeFS').onclick = ()=>{ closeSheet(); renderAll(); };
+    return;
+  }
+  const id = sessionQueue.shift();
+  openExercise(id);
+}
+
+/* ================= EXERCISE PLAYER ================= */
 let activeExercise = null;
 
 function openExercise(id){
@@ -1700,8 +1751,12 @@ function tickHold(){
 }
 
 function renderExAction(){
-  const {ex, setIndex, state, restRemaining, holdRemaining} = activeExercise;
+  const {id, ex, setIndex, state, restRemaining, holdRemaining} = activeExercise;
   const action = document.getElementById('exAction');
+  const w = (ex.loadType==='weight' || ex.loadType==='weight_optional') ? recommendedWeightFor(id) : null;
+  const lastW = w!=null ? lastWeightFor(id) : null;
+  const wLabel = (lastW!=null && w!==lastW) ? 'suggested' : 'last time';
+  const loadLine = w!=null ? `<div class="load-callout">🏋️ Use <b>${w}kg</b> <span>(${wLabel})</span></div>` : '';
   if(state==='hold'){
     action.innerHTML = `
       <div class="set-badge">Set ${setIndex+1} of ${ex.sets}</div>
@@ -1714,6 +1769,7 @@ function renderExAction(){
     action.innerHTML = `
       <div class="set-badge">Set ${setIndex+1} of ${ex.sets}</div>
       <div class="set-target">Target ${ex.reps} reps · form over speed</div>
+      ${loadLine}
       <button class="btn btn-primary" id="exDoneBtn">Done with set →</button>
       <div class="ex-cues segment-list">
         ${ex.cues.map(c=>`<div class="seg-row"><div class="seg-dot" style="background:var(--easy)"></div><div class="seg-label">${c}</div></div>`).join('')}
@@ -1723,6 +1779,7 @@ function renderExAction(){
     action.innerHTML = `
       <div class="rest-label">Rest before Set ${setIndex+1}</div>
       <div class="player-time mono" id="exRestTime">${fmtClock(restRemaining)}</div>
+      ${loadLine}
       <div class="ctrl-btn" id="exSkipRest" style="margin-top:22px; max-width:220px;">Skip rest</div>`;
     document.getElementById('exSkipRest').onclick = ()=>{ activeExercise.restRemaining = 0; tickRest(); };
   }
@@ -1773,7 +1830,7 @@ document.getElementById('exClose').onclick = ()=>{
   if(activeExercise.holdTimer) clearInterval(activeExercise.holdTimer);
   openSheet(`
     <h3>Exit exercise?</h3>
-    <p class="hint">Progress on this session will not be saved.</p>
+    <p class="hint">Progress on this exercise will not be saved.${sessionQueue!==null && sessionQueue.length>0 ? ' The rest of today\u2019s session will stop too.' : ''}</p>
     <div class="sheet-actions"><button class="btn btn-outline-danger" id="csYes">Yes, exit</button><button class="btn btn-ghost" id="csNo">Keep going</button></div>
   `);
   document.getElementById('csYes').onclick = ()=>{
@@ -1782,6 +1839,7 @@ document.getElementById('exClose').onclick = ()=>{
     releaseWakeLock();
     stopKeepAlive();
     activeExercise = null;
+    sessionQueue = null;
   };
   document.getElementById('csNo').onclick = ()=>{
     closeSheet();
@@ -1827,6 +1885,11 @@ function finishExercise(){
     await saveStrengthLog({exerciseId:id, sets:ex.sets, completedAt:Date.now(), rpe: rpeVal, weight, notes: notes||null});
     closeSheet();
     renderAll();
+    if(sessionQueue!==null){
+      // Guided session: keep momentum, skip per-exercise suggestion popups.
+      openNextInQueue();
+      return;
+    }
     const loadShown = await maybeSuggestLoadChange(id, weight, rpeVal);
     if(!loadShown) await maybeSuggestScaleBack(id);
   };
